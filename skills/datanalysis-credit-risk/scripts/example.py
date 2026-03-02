@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+"""
+Execution script
+Version: 1.0.0
+Last modified: 02-03-2026
+"""
 import os, sys
 import time
 import pandas as pd
@@ -7,10 +12,10 @@ import numpy as np
 import multiprocessing
 
 # =============================================================================
-# 系统配置
+# System Configuration
 # =============================================================================
 CPU_COUNT = multiprocessing.cpu_count()
-N_JOBS = max(1, CPU_COUNT - 1)  # 多进程并行数，保留1核给系统
+N_JOBS = max(1, CPU_COUNT - 1)  # Multi-process parallel count, keep 1 core for system
 
 def _ensure_references_on_path():
     script_dir = os.path.dirname(__file__)
@@ -41,57 +46,57 @@ from references.analysis import (drop_abnormal_ym, drop_highmiss_features,
                                psi_distribution_by_org,
                                value_ratio_distribution_by_org)
 
-# ==================== 路径配置（可交互输入） ====================
-# 使用50列的测试数据作为默认值，支持在命令行交互修改
-default_data_path = r'c:\Users\jp341\Desktop\ai_2026\AutoModeling\data\sample_50cols.parquet'
-default_output_dir = r'c:\Users\jp341\Desktop\ai_2026\AutoModeling\output'
+# ==================== Path Configuration (Interactive Input) ====================
+# Use 50-column test data as default, support interactive modification in command line
+default_data_path = ''
+default_output_dir = ''
 
 def _get_path_input(prompt, default):
     try:
-        user_val = input(f"{prompt} (默认: {default}): ").strip()
+        user_val = input(f"{prompt} (default: {default}): ").strip()
     except Exception:
         user_val = ''
     return user_val if user_val else default
 
-DATA_PATH = _get_path_input('请输入数据文件路径DATA_PATH', default_data_path)
-OUTPUT_DIR = _get_path_input('请输入输出目录OUTPUT_DIR', default_output_dir)
+DATA_PATH = _get_path_input('Please enter data file path DATA_PATH', default_data_path)
+OUTPUT_DIR = _get_path_input('Please enter output directory OUTPUT_DIR', default_output_dir)
 REPORT_PATH = os.path.join(OUTPUT_DIR, '数据清洗报告.xlsx')
 
-# 数据列名配置（根据实际数据调整）
-DATE_COL = _get_path_input('请输入数据中日期列名', 'apply_date')
-Y_COL = _get_path_input('请输入数据中标签列名', 'target')
-ORG_COL = _get_path_input('请输入数据中机构列名', 'org_info')
+# Data column name configuration (adjust according to actual data)
+DATE_COL = _get_path_input('Please enter date column name in data', 'apply_date')
+Y_COL = _get_path_input('Please enter label column name in data', 'target')
+ORG_COL = _get_path_input('Please enter organization column name in data', 'org_info')
 
-# 支持多个主键列名输入（逗号或空格分隔）
+# Support multiple primary key column names input (comma or space separated)
 def _get_list_input(prompt, default):
     try:
-        user_val = input(f"{prompt} (默认: {default}): ").strip()
+        user_val = input(f"{prompt} (default: {default}): ").strip()
     except Exception:
         user_val = ''
     if not user_val:
         user_val = default
-    # 支持逗号或空格分隔
+    # Support comma or space separation
     parts = [p.strip() for p in user_val.replace(',', ' ').split() if p.strip()]
     return parts
 
-KEY_COLS = _get_list_input('请输入数据中主键列名（多个列用逗号或空格分隔）', 'record_id')
+KEY_COLS = _get_list_input('Please enter primary key column names in data (multiple columns separated by comma or space)', 'record_id')
 
-# ==================== 多进程配置信息 ====================
+# ==================== Multi-process Configuration Information ====================
 print("=" * 60)
-print("多进程配置")
+print("Multi-process Configuration")
 print("=" * 60)
-print(f"   本机CPU核心数: {CPU_COUNT}")
-print(f"   当前使用进程数: {N_JOBS}")
+print(f"   Local CPU cores: {CPU_COUNT}")
+print(f"   Current process count: {N_JOBS}")
 print("=" * 60)
 
-# ==================== OOS机构配置（可交互输入） ====================
-# 默认贷外机构列表，用户可在交互时以逗号分隔形式输入自定义列表
+# ==================== OOS Organization Configuration (Interactive Input) ====================
+# Default out-of-sample organization list, users can input custom list in comma-separated format during interaction
 default_oos = [
-    '外部机构A', '外部机构B', '外部机构C'
+   'orgA', 'orgB', 'orgC', 'orgD', 'orgE',
 ]
 
 try:
-    oos_input = input('请输入贷外机构列表，逗号分隔（按回车使用默认列表）：').strip()
+    oos_input = input('Please enter out-of-sample organization list, comma separated (press Enter to use default list):').strip()
 except Exception:
     oos_input = ''
 if oos_input:
@@ -101,44 +106,44 @@ else:
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# ==================== 交互式输入超参数 ====================
+# ==================== Interactive Hyperparameter Input ====================
 def get_user_input(prompt, default, dtype=float):
-    """获取用户输入，支持默认值和类型转换"""
+    """Get user input, support default value and type conversion"""
     while True:
         try:
-            user_input = input(f"{prompt} (默认: {default}): ").strip()
+            user_input = input(f"{prompt} (default: {default}): ").strip()
             if not user_input:
                 return default
             return dtype(user_input)
         except ValueError:
-            print(f"   输入无效，请输入{dtype.__name__}类型")
+            print(f"   Invalid input, please enter {dtype.__name__} type")
 
-# 记录清洗步骤
+# Record cleaning steps
 steps = []
 
-# 用于存储各步骤的参数
+# Store parameters for each step
 params = {}
 
-# 计时装饰器
+# Timer decorator
 def timer(step_name):
-    """计时装饰器"""
+    """Timer decorator"""
     def decorator(func):
         def wrapper(*args, **kwargs):
-            print(f"\n开始 {step_name}...")
+            print(f"\nStarting {step_name}...")
             start_time = time.time()
             result = func(*args, **kwargs)
             elapsed = time.time() - start_time
-            print(f"   {step_name} 耗时: {elapsed:.2f}秒")
+            print(f"   {step_name} elapsed: {elapsed:.2f} seconds")
             return result
         return wrapper
     return decorator
 
-# ==================== Step 1: 获取数据 ====================
+# ==================== Step 1: Get Data ====================
 print("\n" + "=" * 60)
-print("Step 1: 获取数据")
+print("Step 1: Get Data")
 print("=" * 60)
 step_start = time.time()
-# 使用global_parameters中的配置
+# Use configuration from global_parameters
 data = get_dataset(
     data_pth=DATA_PATH,
     date_colName=DATE_COL,
@@ -149,97 +154,97 @@ data = get_dataset(
     drop_colNames=[],
     miss_vals=[-1, -999, -1111]
 )
-print(f"   原始数据: {data.shape}")
-print(f"   异常值已替换为NaN: [-1, -999, -1111]")
-print(f"   Step 1 耗时: {time.time() - step_start:.2f}秒")
+print(f"   Original data: {data.shape}")
+print(f"   Abnormal values replaced with NaN: [-1, -999, -1111]")
+print(f"   Step 1 elapsed: {time.time() - step_start:.2f} seconds")
 
-# ==================== Step 2: 机构样本分析 ====================
+# ==================== Step 2: Organization Sample Analysis ====================
 print("\n" + "=" * 60)
-print("Step 2: 机构样本分析")
+print("Step 2: Organization Sample Analysis")
 print("=" * 60)
 step_start = time.time()
 org_stat = org_analysis(data, oos_orgs=OOS_ORGS)
 steps.append(('机构样本统计', org_stat))
-print(f"   机构数: {data['new_org'].nunique()}, 月份数: {data['new_date_ym'].nunique()}")
-print(f"   贷外机构: {len(OOS_ORGS)}个")
-print(f"   Step 2 耗时: {time.time() - step_start:.2f}秒")
+print(f"   Organization count: {data['new_org'].nunique()}, Month count: {data['new_date_ym'].nunique()}")
+print(f"   Out-of-sample organizations: {len(OOS_ORGS)}")
+print(f"   Step 2 elapsed: {time.time() - step_start:.2f} seconds")
 
-# ==================== Step 3: 分离OOS数据 ====================
+# ==================== Step 3: Separate OOS Data ====================
 print("\n" + "=" * 60)
-print("Step 3: 分离OOS数据")
+print("Step 3: Separate OOS Data")
 print("=" * 60)
 step_start = time.time()
 oos_data = data[data['new_org'].isin(OOS_ORGS)]
 data = data[~data['new_org'].isin(OOS_ORGS)]
-print(f"   OOS样本: {oos_data.shape[0]}条")
-print(f"   建模样本: {data.shape[0]}条")
-print(f"   OOS机构: {OOS_ORGS}")
-print(f"   Step 3 耗时: {time.time() - step_start:.2f}秒")
-# 创建分离信息DataFrame
+print(f"   OOS samples: {oos_data.shape[0]} rows")
+print(f"   Modeling samples: {data.shape[0]} rows")
+print(f"   OOS organizations: {OOS_ORGS}")
+print(f"   Step 3 elapsed: {time.time() - step_start:.2f} seconds")
+# Create separation information DataFrame
 oos_info = pd.DataFrame({'变量': ['OOS样本', '建模样本'], '数量': [oos_data.shape[0], data.shape[0]]})
 steps.append(('分离OOS数据', oos_info))
 
-# ==================== Step 4: 过滤异常月份（仅对建模数据） ====================
+# ==================== Step 4: Filter Abnormal Months (Modeling Data Only) ====================
 print("\n" + "=" * 60)
-print("Step 4: 过滤异常月份（仅对建模数据）")
+print("Step 4: Filter Abnormal Months (Modeling Data Only)")
 print("=" * 60)
-print("   可直接按回车使用默认值")
+print("   Press Enter to use default values")
 print("=" * 60)
-params['min_ym_bad_sample'] = int(get_user_input("坏样本数阈值", 10, int))
-params['min_ym_sample'] = int(get_user_input("总样本数阈值", 500, int))
+params['min_ym_bad_sample'] = int(get_user_input("Bad sample count threshold", 10, int))
+params['min_ym_sample'] = int(get_user_input("Total sample count threshold", 500, int))
 step_start = time.time()
 data_filtered, abnormal_ym = drop_abnormal_ym(data.copy(), min_ym_bad_sample=params['min_ym_bad_sample'], min_ym_sample=params['min_ym_sample'])
 steps.append(('Step4-异常月份处理', abnormal_ym))
-print(f"   过滤后: {data_filtered.shape}")
-print(f"   参数: min_ym_bad_sample={params['min_ym_bad_sample']}, min_ym_sample={params['min_ym_sample']}")
+print(f"   After filtering: {data_filtered.shape}")
+print(f"   Parameters: min_ym_bad_sample={params['min_ym_bad_sample']}, min_ym_sample={params['min_ym_sample']}")
 if len(abnormal_ym) > 0:
-    print(f"   剔除月份: {abnormal_ym['年月'].tolist()}")
-    print(f"   去除条件: {abnormal_ym['去除条件'].tolist()}")
-print(f"   Step 4 耗时: {time.time() - step_start:.2f}秒")
+    print(f"   Dropped months: {abnormal_ym['年月'].tolist()}")
+    print(f"   Removal conditions: {abnormal_ym['去除条件'].tolist()}")
+print(f"   Step 4 elapsed: {time.time() - step_start:.2f} seconds")
 
-# ==================== Step 5: 计算缺失率 ====================
+# ==================== Step 5: Calculate Missing Rate ====================
 print("\n" + "=" * 60)
-print("Step 5: 计算缺失率")
+print("Step 5: Calculate Missing Rate")
 print("=" * 60)
 step_start = time.time()
 orgs = data['new_org'].unique().tolist()
 channel = {'整体': orgs}
 miss_detail, miss_channel = missing_check(data, channel=channel)
-# miss_detail: 缺失率明细（格式：变量，整体，机构1，机构2，...，机构n）
-# miss_channel: 整体缺失率
+# miss_detail: Missing rate details (format: feature, overall, org1, org2, ..., orgn)
+# miss_channel: Overall missing rate
 steps.append(('缺失率明细', miss_detail))
-print(f"   变量数: {len(miss_detail['变量'].unique())}")
-print(f"   机构数: {len(miss_detail.columns) - 2}")  # 减去'变量'和'整体'两列
-print(f"   Step 5 耗时: {time.time() - step_start:.2f}秒")
+print(f"   Feature count: {len(miss_detail['变量'].unique())}")
+print(f"   Organization count: {len(miss_detail.columns) - 2}")  # Subtract '变量' and '整体' columns
+print(f"   Step 5 elapsed: {time.time() - step_start:.2f} seconds")
 
-# ==================== Step 6: 剔除高缺失变量 ====================
+# ==================== Step 6: Drop High Missing Rate Features ====================
 print("\n" + "=" * 60)
-print("Step 6: 剔除高缺失变量")
+print("Step 6: Drop High Missing Rate Features")
 print("=" * 60)
-print("   可直接按回车使用默认值")
+print("   Press Enter to use default values")
 print("=" * 60)
-params['missing_ratio'] = get_user_input("缺失率阈值", 0.6)
+params['missing_ratio'] = get_user_input("Missing rate threshold", 0.6)
 step_start = time.time()
 data_miss, dropped_miss = drop_highmiss_features(data.copy(), miss_channel, threshold=params['missing_ratio'])
 steps.append(('Step6-高缺失率处理', dropped_miss))
-print(f"   剔除: {len(dropped_miss)}个")
-print(f"   阈值: {params['missing_ratio']}")
+print(f"   Dropped: {len(dropped_miss)}")
+print(f"   Threshold: {params['missing_ratio']}")
 if len(dropped_miss) > 0:
-    print(f"   剔除变量: {dropped_miss['变量'].tolist()[:5]}...")
-    print(f"   去除条件: {dropped_miss['去除条件'].tolist()[:5]}...")
-print(f"   Step 6 耗时: {time.time() - step_start:.2f}秒")
+    print(f"   Dropped features: {dropped_miss['变量'].tolist()[:5]}...")
+    print(f"   Removal conditions: {dropped_miss['去除条件'].tolist()[:5]}...")
+print(f"   Step 6 elapsed: {time.time() - step_start:.2f} seconds")
 
-# ==================== Step 7: 剔除低IV变量 ====================
+# ==================== Step 7: Drop Low IV Features ====================
 print("\n" + "=" * 60)
-print("Step 7: 剔除低IV变量")
+print("Step 7: Drop Low IV Features")
 print("=" * 60)
-print("   可直接按回车使用默认值")
+print("   Press Enter to use default values")
 print("=" * 60)
-params['overall_iv_threshold'] = get_user_input("整体IV阈值", 0.1)
-params['org_iv_threshold'] = get_user_input("单机构IV阈值", 0.1)
-params['max_org_threshold'] = int(get_user_input("最大容忍低IV机构数", 2, int))
+params['overall_iv_threshold'] = get_user_input("Overall IV threshold", 0.1)
+params['org_iv_threshold'] = get_user_input("Single organization IV threshold", 0.1)
+params['max_org_threshold'] = int(get_user_input("Maximum tolerated low IV organization count", 2, int))
 step_start = time.time()
-# 获取特征列表（使用全部变量）
+# Get feature list (use all features)
 features = [c for c in data.columns if c.startswith('i_')]
 data_iv, iv_detail, iv_process = drop_lowiv_features(
     data.copy(), features,
@@ -248,27 +253,27 @@ data_iv, iv_detail, iv_process = drop_lowiv_features(
     max_org_threshold=params['max_org_threshold'],
     n_jobs=N_JOBS
 )
-# iv_detail: IV明细（每个变量在每个机构上以及整体上的IV值）
-# iv_process: IV处理表（不满足设定条件的变量）
+# iv_detail: IV details (IV value of each feature in each organization and overall)
+# iv_process: IV processing table (features that do not meet the conditions)
 steps.append(('Step7-IV处理', iv_process))
-print(f"   剔除: {len(iv_process)}个")
-print(f"   参数: overall_iv_threshold={params['overall_iv_threshold']}, org_iv_threshold={params['org_iv_threshold']}, max_org_threshold={params['max_org_threshold']}")
+print(f"   Dropped: {len(iv_process)}")
+print(f"   Parameters: overall_iv_threshold={params['overall_iv_threshold']}, org_iv_threshold={params['org_iv_threshold']}, max_org_threshold={params['max_org_threshold']}")
 if len(iv_process) > 0:
-    print(f"   剔除变量: {iv_process['变量'].tolist()[:5]}...")
-    print(f"   处理原因: {iv_process['处理原因'].tolist()[:5]}...")
-print(f"   Step 7 耗时: {time.time() - step_start:.2f}秒")
+    print(f"   Dropped features: {iv_process['变量'].tolist()[:5]}...")
+    print(f"   Processing reasons: {iv_process['处理原因'].tolist()[:5]}...")
+print(f"   Step 7 elapsed: {time.time() - step_start:.2f} seconds")
 
-# ==================== Step 8: 剔除高PSI变量 ====================
+# ==================== Step 8: Drop High PSI Features ====================
 print("\n" + "=" * 60)
-print("Step 8: 剔除高PSI变量 (分机构+逐月份)")
+print("Step 8: Drop High PSI Features (By Organization + Month-by-Month)")
 print("=" * 60)
-print("   可直接按回车使用默认值")
+print("   Press Enter to use default values")
 print("=" * 60)
-params['psi_threshold'] = get_user_input("PSI阈值", 0.1)
-params['max_months_ratio'] = get_user_input("最大不稳定月份比例", 1/3)
-params['max_orgs'] = int(get_user_input("最大不稳定机构数", 6, int))
+params['psi_threshold'] = get_user_input("PSI threshold", 0.1)
+params['max_months_ratio'] = get_user_input("Maximum unstable month ratio", 1/3)
+params['max_orgs'] = int(get_user_input("Maximum unstable organization count", 6, int))
 step_start = time.time()
-# 获取PSI计算前的特征（使用全部变量）
+# Get features before PSI calculation (use all features)
 features_for_psi = [c for c in data.columns if c.startswith('i_')]
 data_psi, psi_detail, psi_process = drop_highpsi_features(
     data.copy(), features_for_psi,
@@ -278,85 +283,85 @@ data_psi, psi_detail, psi_process = drop_highpsi_features(
     min_sample_per_month=100,
     n_jobs=N_JOBS
 )
-# psi_detail: PSI明细（每个变量在每个机构每个月上的PSI值）
-# psi_process: PSI处理表（不满足设定条件的变量）
+# psi_detail: PSI details (PSI value of each feature in each organization each month)
+# psi_process: PSI processing table (features that do not meet the conditions)
 steps.append(('Step8-PSI处理', psi_process))
-print(f"   剔除: {len(psi_process)}个")
-print(f"   参数: psi_threshold={params['psi_threshold']}, max_months_ratio={params['max_months_ratio']:.2f}, max_orgs={params['max_orgs']}")
+print(f"   Dropped: {len(psi_process)}")
+print(f"   Parameters: psi_threshold={params['psi_threshold']}, max_months_ratio={params['max_months_ratio']:.2f}, max_orgs={params['max_orgs']}")
 if len(psi_process) > 0:
-    print(f"   剔除变量: {psi_process['变量'].tolist()[:5]}...")
-    print(f"   处理原因: {psi_process['处理原因'].tolist()[:5]}...")
-print(f"   PSI明细: {len(psi_detail)}条")
-print(f"   Step 8 耗时: {time.time() - step_start:.2f}秒")
+    print(f"   Dropped features: {psi_process['变量'].tolist()[:5]}...")
+    print(f"   Processing reasons: {psi_process['处理原因'].tolist()[:5]}...")
+print(f"   PSI details: {len(psi_detail)} records")
+print(f"   Step 8 elapsed: {time.time() - step_start:.2f} seconds")
 
-# ==================== Step 9: Null Importance去噪 ====================
+# ==================== Step 9: Null Importance Denoising ====================
 print("\n" + "=" * 60)
-print("Step 9: Null Importance去除高噪音变量")
+print("Step 9: Null Importance Remove High Noise Features")
 print("=" * 60)
-print("   可直接按回车使用默认值")
+print("   Press Enter to use default values")
 print("=" * 60)
-params['n_estimators'] = int(get_user_input("树的数量", 100, int))
-params['max_depth'] = int(get_user_input("树的最大深度", 5, int))
-params['gain_threshold'] = get_user_input("gain差值阈值", 50)
+params['n_estimators'] = int(get_user_input("Number of trees", 100, int))
+params['max_depth'] = int(get_user_input("Maximum tree depth", 5, int))
+params['gain_threshold'] = get_user_input("Gain difference threshold", 50)
 step_start = time.time()
-# 获取特征列表（使用全部变量）
+# Get feature list (use all features)
 features = [c for c in data.columns if c.startswith('i_')]
 data_noise, dropped_noise = drop_highnoise_features(data.copy(), features, n_estimators=params['n_estimators'], max_depth=params['max_depth'], gain_threshold=params['gain_threshold'])
 steps.append(('Step9-null importance处理', dropped_noise))
-print(f"   剔除: {len(dropped_noise)}个")
-print(f"   参数: n_estimators={params['n_estimators']}, max_depth={params['max_depth']}, gain_threshold={params['gain_threshold']}")
+print(f"   Dropped: {len(dropped_noise)}")
+print(f"   Parameters: n_estimators={params['n_estimators']}, max_depth={params['max_depth']}, gain_threshold={params['gain_threshold']}")
 if len(dropped_noise) > 0:
-    print(f"   剔除变量: {dropped_noise['变量'].tolist()}")
-print(f"   Step 9 耗时: {time.time() - step_start:.2f}秒")
+    print(f"   Dropped features: {dropped_noise['变量'].tolist()}")
+print(f"   Step 9 elapsed: {time.time() - step_start:.2f} seconds")
 
-# ==================== Step 10: 剔除高相关变量（基于Null Importance的原始gain） ====================
+# ==================== Step 10: Drop High Correlation Features (Based on Null Importance Original Gain) ====================
 print("\n" + "=" * 60)
-print("Step 10: 剔除高相关变量（基于Null Importance的原始gain）")
+print("Step 10: Drop High Correlation Features (Based on Null Importance Original Gain)")
 print("=" * 60)
-print("   可直接按回车使用默认值")
+print("   Press Enter to use default values")
 print("=" * 60)
-params['max_corr'] = get_user_input("相关性阈值", 0.9)
-params['top_n_keep'] = int(get_user_input("保留原始gain排名前N的变量", 20, int))
+params['max_corr'] = get_user_input("Correlation threshold", 0.9)
+params['top_n_keep'] = int(get_user_input("Keep top N features by original gain ranking", 20, int))
 step_start = time.time()
-# 获取特征列表（使用全部变量）
+# Get feature list (use all features)
 features = [c for c in data.columns if c.startswith('i_')]
-# 从null importance结果中获取原始gain
+# Get original gain from null importance results
 if len(dropped_noise) > 0 and '原始gain' in dropped_noise.columns:
     gain_dict = dict(zip(dropped_noise['变量'], dropped_noise['原始gain']))
 else:
     gain_dict = {}
 data_corr, dropped_corr = drop_highcorr_features(data.copy(), features, threshold=params['max_corr'], gain_dict=gain_dict, top_n_keep=params['top_n_keep'])
 steps.append(('Step10-高相关性剔除', dropped_corr))
-print(f"   剔除: {len(dropped_corr)}个")
-print(f"   阈值: {params['max_corr']}")
+print(f"   Dropped: {len(dropped_corr)}")
+print(f"   Threshold: {params['max_corr']}")
 if len(dropped_corr) > 0:
-    print(f"   剔除变量: {dropped_corr['变量'].tolist()}")
-    print(f"   去除条件: {dropped_corr['去除条件'].tolist()[:5]}...")
-print(f"   Step 10 耗时: {time.time() - step_start:.2f}秒")
+    print(f"   Dropped features: {dropped_corr['变量'].tolist()}")
+    print(f"   Removal conditions: {dropped_corr['去除条件'].tolist()[:5]}...")
+print(f"   Step 10 elapsed: {time.time() - step_start:.2f} seconds")
 
-# ==================== Step 11: 导出报告 ====================
+# ==================== Step 11: Export Report ====================
 print("\n" + "=" * 60)
-print("Step 11: 导出报告")
+print("Step 11: Export Report")
 print("=" * 60)
 step_start = time.time()
 
-# 计算IV分布统计
-print("   计算IV分布统计...")
+# Calculate IV distribution statistics
+print("   Calculating IV distribution statistics...")
 iv_distribution = iv_distribution_by_org(iv_detail, oos_orgs=OOS_ORGS)
-print(f"   IV分布统计: {len(iv_distribution)}条")
+print(f"   IV distribution statistics: {len(iv_distribution)} records")
 
-# 计算PSI分布统计
-print("   计算PSI分布统计...")
+# Calculate PSI distribution statistics
+print("   Calculating PSI distribution statistics...")
 psi_distribution = psi_distribution_by_org(psi_detail, oos_orgs=OOS_ORGS)
-print(f"   PSI分布统计: {len(psi_distribution)}条")
+print(f"   PSI distribution statistics: {len(psi_distribution)} records")
 
-# 计算有值率分布统计（使用全部变量）
-print("   计算有值率分布统计...")
+# Calculate value ratio distribution statistics (use all features)
+print("   Calculating value ratio distribution statistics...")
 features_for_value_ratio = [c for c in data.columns if c.startswith('i_')]
 value_ratio_distribution = value_ratio_distribution_by_org(data, features_for_value_ratio, oos_orgs=OOS_ORGS)
-print(f"   有值率分布统计: {len(value_ratio_distribution)}条")
+print(f"   Value ratio distribution statistics: {len(value_ratio_distribution)} records")
 
-# 添加明细和分布统计到steps列表
+# Add details and distribution statistics to steps list
 steps.append(('Step7-IV明细', iv_detail))
 steps.append(('Step7-IV分布统计', iv_distribution))
 steps.append(('Step8-PSI明细', psi_detail))
@@ -372,15 +377,15 @@ export_cleaning_report(REPORT_PATH, steps,
                       iv_distribution=iv_distribution,
                       psi_distribution=psi_distribution,
                       value_ratio_distribution=value_ratio_distribution)
-print(f"   报告: {REPORT_PATH}")
-print(f"   Step 11 耗时: {time.time() - step_start:.2f}秒")
+print(f"   Report: {REPORT_PATH}")
+print(f"   Step 11 elapsed: {time.time() - step_start:.2f} seconds")
 
-# ==================== 汇总 ====================
+# ==================== Summary ====================
 print("\n" + "=" * 60)
-print("数据清洗完成!")
+print("Data Cleaning Completed!")
 print("=" * 60)
-print(f"   原始数据: {data.shape[0]}条")
-print(f"   原始变量: {len([c for c in data.columns if c.startswith('i_')])}个")
-print(f"   清洗步骤（各步骤独立执行，不删除数据）:")
+print(f"   Original data: {data.shape[0]} rows")
+print(f"   Original features: {len([c for c in data.columns if c.startswith('i_')])}")
+print(f"   Cleaning steps (each step executed independently, data not deleted):")
 for name, df in steps:
-    print(f"     - {name}: 剔除{df.shape[0] if hasattr(df, 'shape') else len(df)}个")
+    print(f"     - {name}: Dropped {df.shape[0] if hasattr(df, 'shape') else len(df)}")

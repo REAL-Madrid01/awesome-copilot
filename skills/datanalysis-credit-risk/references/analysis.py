@@ -1,5 +1,5 @@
-"""变量筛选与分析模块 - 精简版
-PSI计算在func.py中复用，analysis.py只做变量筛选
+"""Variable selection and analysis module - simplified version
+PSI calculation is reused in func.py, analysis.py only handles variable selection
 """
 import pandas as pd
 import numpy as np
@@ -16,7 +16,7 @@ from joblib import Parallel, delayed
 
 def drop_abnormal_ym(data: pd.DataFrame, min_ym_bad_sample: int = 1, 
                      min_ym_sample: int = 500) -> tuple:
-    """过滤异常月份 - 整体统计，不分机构"""
+    """Filter abnormal months - overall statistics, not by organization"""
     stat = data.groupby('new_date_ym').agg(
         bad_cnt=('new_target', 'sum'),
         total=('new_target', 'count')
@@ -25,13 +25,13 @@ def drop_abnormal_ym(data: pd.DataFrame, min_ym_bad_sample: int = 1,
     abnormal = stat[(stat['bad_cnt'] < min_ym_bad_sample) | (stat['total'] < min_ym_sample)]
     abnormal = abnormal.rename(columns={'new_date_ym': '年月'})
     abnormal['去除条件'] = abnormal.apply(
-        lambda x: f'坏样本数{x["bad_cnt"]}小于{min_ym_bad_sample}' if x['bad_cnt'] < min_ym_bad_sample else f'总样本数{x["total"]}小于{min_ym_sample}', axis=1
+        lambda x: f'bad sample count {x["bad_cnt"]} less than {min_ym_bad_sample}' if x['bad_cnt'] < min_ym_bad_sample else f'total sample count {x["total"]} less than {min_ym_sample}', axis=1
     )
     
     if len(abnormal) > 0:
         data = data[~data['new_date_ym'].isin(abnormal['年月'])]
     
-    # 移除空行
+    # Remove empty rows
     abnormal = abnormal.dropna(how='all')
     abnormal = abnormal.reset_index(drop=True)
     
@@ -40,20 +40,20 @@ def drop_abnormal_ym(data: pd.DataFrame, min_ym_bad_sample: int = 1,
 
 def drop_highmiss_features(data: pd.DataFrame, miss_channel: pd.DataFrame, 
                            threshold: float = 0.6) -> tuple:
-    """剔除高缺失变量"""
+    """Drop high missing rate features"""
     high_miss = miss_channel[miss_channel['整体缺失率'] > threshold].copy()
     high_miss['缺失率'] = high_miss['整体缺失率']
     
-    # 修改去除条件写法，显示具体缺失率值
+    # Modify removal condition to show specific missing rate value
     high_miss['去除条件'] = high_miss.apply(
-        lambda x: f'该变量整体缺失率为{x["缺失率"]:.4f}，超过阈值{threshold}', axis=1
+        lambda x: f'overall missing rate is {x["缺失率"]:.4f}, exceeds threshold {threshold}', axis=1
     )
     
-    # 移除空行
+    # Remove empty rows
     high_miss = high_miss.dropna(how='all')
     high_miss = high_miss.reset_index(drop=True)
     
-    # 剔除高缺失变量
+    # Drop high missing rate features
     if len(high_miss) > 0 and '变量' in high_miss.columns:
         to_drop = high_miss['变量'].tolist()
         data = data.drop(columns=[c for c in to_drop if c in data.columns])
@@ -64,26 +64,26 @@ def drop_highmiss_features(data: pd.DataFrame, miss_channel: pd.DataFrame,
 def drop_lowiv_features(data: pd.DataFrame, features: List[str], 
                        overall_iv_threshold: float = 0.05, org_iv_threshold: float = 0.02,
                        max_org_threshold: int = 8, n_jobs: int = 4) -> tuple:
-    """剔除低IV变量 - 多进程版本，返回IV明细和IV处理表
+    """Drop low IV features - multi-process version, returns IV details and IV processing table
     
     Args:
-        overall_iv_threshold: 整体IV阈值，低于此值记录到IV处理表
-        org_iv_threshold: 单机构IV阈值，低于此值认为不满足
-        max_org_threshold: 最大容忍机构数，超过此数机构IV低于阈值则记录到IV处理表
+        overall_iv_threshold: Overall IV threshold, values below this are recorded in IV processing table
+        org_iv_threshold: Single organization IV threshold, values below this are considered not satisfied
+        max_org_threshold: Maximum tolerated organization count, if more than this number of organizations have IV below threshold, record in IV processing table
     
     Returns:
-        data: 剔除后的数据
-        iv_detail: IV明细（每个变量在每个机构上以及整体上的IV值）
-        iv_process: IV处理表（不满足设定条件的变量）
+        data: Data after dropping
+        iv_detail: IV details (IV value of each feature in each organization and overall)
+        iv_process: IV processing table (features that do not meet the conditions)
     """
     from references.func import calculate_iv
     from joblib import Parallel, delayed
     
     orgs = sorted(data['new_org'].unique())
     
-    print(f"   IV计算: 特征数={len(features)}, 机构数={len(orgs)}")
+    print(f"   IV calculation: feature count={len(features)}, organization count={len(orgs)}")
     
-    # 一次性计算所有机构的IV值
+    # Calculate IV values for all organizations at once
     def _calc_org_iv(org):
         org_data = data[data['new_org'] == org]
         org_iv = calculate_iv(org_data, features, n_jobs=1)
@@ -93,32 +93,32 @@ def drop_lowiv_features(data: pd.DataFrame, features: List[str],
             return org_iv
         return None
     
-    # 计算整体IV
-    print(f"   计算整体IV...")
+    # Calculate overall IV
+    print(f"   Calculating overall IV...")
     iv_overall = calculate_iv(data, features, n_jobs=n_jobs)
-    print(f"   整体IV计算结果: {len(iv_overall)}个变量")
+    print(f"   Overall IV calculation result: {len(iv_overall)} features")
     if len(iv_overall) == 0:
-        print(f"   警告: 整体IV计算结果为空，返回空表")
+        print(f"   Warning: Overall IV calculation result is empty, returning empty table")
         return data, pd.DataFrame(columns=['变量', 'IV值', '机构', '类型']), pd.DataFrame(columns=['变量', '整体IV', '低IV机构数', '处理原因'])
     iv_overall = iv_overall.rename(columns={'IV': 'IV值'})
     
-    # 并行计算所有机构的IV值
-    print(f"   并行计算{len(orgs)}个机构的IV值...")
+    # Parallel calculation of IV values for all organizations
+    print(f"   Parallel calculation of IV values for {len(orgs)} organizations...")
     iv_by_org_results = Parallel(n_jobs=n_jobs, verbose=0)(
         delayed(_calc_org_iv)(org) for org in orgs
     )
     iv_by_org = [r for r in iv_by_org_results if r is not None]
     iv_by_org = pd.concat(iv_by_org, ignore_index=True) if iv_by_org else pd.DataFrame(columns=['变量', 'IV值', '机构'])
-    print(f"   分机构IV汇总: {len(iv_by_org)}条记录")
+    print(f"   Organization IV summary: {len(iv_by_org)} records")
     
-    # 转换为宽表格式：变量，整体，机构1，机构2，...，机构n
+    # Convert to wide format: feature, overall, org1, org2, ..., orgn
     iv_detail_dict = {'变量': []}
     iv_detail_dict['整体'] = []
     
     for org in orgs:
         iv_detail_dict[org] = []
     
-    # 获取所有变量
+    # Get all features
     all_vars = set(iv_overall['变量'].tolist())
     if len(iv_by_org) > 0:
         all_vars.update(iv_by_org['变量'].tolist())
@@ -127,14 +127,14 @@ def drop_lowiv_features(data: pd.DataFrame, features: List[str],
     for var in all_vars:
         iv_detail_dict['变量'].append(var)
         
-        # 整体IV
+        # Overall IV
         var_overall = iv_overall[iv_overall['变量'] == var]
         if len(var_overall) > 0:
             iv_detail_dict['整体'].append(var_overall['IV值'].values[0])
         else:
             iv_detail_dict['整体'].append(None)
         
-        # 各机构IV
+        # IV for each organization
         for org in orgs:
             var_org = iv_by_org[iv_by_org['机构'] == org]
             var_org = var_org[var_org['变量'] == var]
@@ -144,53 +144,53 @@ def drop_lowiv_features(data: pd.DataFrame, features: List[str],
                 iv_detail_dict[org].append(None)
     
     iv_detail = pd.DataFrame(iv_detail_dict)
-    # 按照整体IV降序排序
+    # Sort by overall IV in descending order
     iv_detail = iv_detail.sort_values('整体', ascending=False)
     iv_detail = iv_detail.reset_index(drop=True)
     
-    # 标记不满足条件的变量
-    # 1. 整体IV低于阈值
+    # Mark features that do not meet conditions
+    # 1. Overall IV below threshold
     iv_overall_low = iv_overall[iv_overall['IV值'] < overall_iv_threshold]['变量'].tolist()
     
-    # 2. 单机构IV低于阈值的机构数
+    # 2. Number of organizations with single organization IV below threshold
     if len(iv_by_org) > 0:
         iv_by_org_low = iv_by_org[iv_by_org['IV值'] < org_iv_threshold].groupby('变量').size().reset_index()
         iv_by_org_low.columns = ['变量', '低IV机构数']
     else:
         iv_by_org_low = pd.DataFrame(columns=['变量', '低IV机构数'])
     
-    # 获取每个变量的低IV机构列表
+    # Get list of low IV organizations for each feature
     low_iv_orgs_dict = {}
     if len(iv_by_org) > 0:
         for var in iv_by_org['变量'].unique():
             var_orgs = iv_by_org[(iv_by_org['变量'] == var) & (iv_by_org['IV值'] < org_iv_threshold)]['机构'].tolist()
             low_iv_orgs_dict[var] = var_orgs
     
-    # 3. 标记需要处理的变量
+    # 3. Mark features that need processing
     iv_process = []
     
-    # 调试信息：统计IV分布
+    # Debug info: IV distribution statistics
     if len(iv_overall) > 0:
-        print(f"   整体IV统计: 最小值={iv_overall['IV值'].min():.4f}, 最大值={iv_overall['IV值'].max():.4f}, 中位数={iv_overall['IV值'].median():.4f}")
-        print(f"   整体IV小于{overall_iv_threshold}的变量数: {(iv_overall['IV值'] < overall_iv_threshold).sum()}/{len(iv_overall)}")
+        print(f"   Overall IV statistics: min={iv_overall['IV值'].min():.4f}, max={iv_overall['IV值'].max():.4f}, median={iv_overall['IV值'].median():.4f}")
+        print(f"   Number of features with overall IV less than {overall_iv_threshold}: {(iv_overall['IV值'] < overall_iv_threshold).sum()}/{len(iv_overall)}")
     
     if len(iv_by_org_low) > 0:
-        print(f"   分机构IV小于{org_iv_threshold}的变量统计:")
-        print(f"     最多低IV机构数: {iv_by_org_low['低IV机构数'].max()}")
-        print(f"     低IV机构数大于等于{max_org_threshold}的变量数: {(iv_by_org_low['低IV机构数'] >= max_org_threshold).sum()}/{len(iv_by_org_low)}")
+        print(f"   Statistics of features with organization IV less than {org_iv_threshold}:")
+        print(f"     Maximum low IV organization count: {iv_by_org_low['低IV机构数'].max()}")
+        print(f"     Number of features with low IV organization count greater than or equal to {max_org_threshold}: {(iv_by_org_low['低IV机构数'] >= max_org_threshold).sum()}/{len(iv_by_org_low)}")
     
     for var in features:
         reasons = []
         
-        # 检查整体IV
+        # Check overall IV
         var_overall_iv = iv_overall[iv_overall['变量'] == var]['IV值'].values
         if len(var_overall_iv) > 0 and var_overall_iv[0] < overall_iv_threshold:
-            reasons.append(f'整体IV{var_overall_iv[0]:.4f}小于阈值{overall_iv_threshold}')
+            reasons.append(f'overall IV {var_overall_iv[0]:.4f} less than threshold {overall_iv_threshold}')
         
-        # 检查分机构IV
+        # Check organization IV
         var_org_low = iv_by_org_low[iv_by_org_low['变量'] == var]
         if len(var_org_low) > 0 and var_org_low['低IV机构数'].values[0] >= max_org_threshold:
-            reasons.append(f'在{var_org_low["低IV机构数"].values[0]}个机构上IV小于阈值{org_iv_threshold}')
+            reasons.append(f'IV less than threshold {org_iv_threshold} in {var_org_low["低IV机构数"].values[0]} organizations')
         
         if reasons:
             iv_process.append({
@@ -202,7 +202,7 @@ def drop_lowiv_features(data: pd.DataFrame, features: List[str],
     iv_process = pd.DataFrame(iv_process)
     iv_process = iv_process.reset_index(drop=True)
     
-    # 剔除不满足条件的变量
+    # Drop features that do not meet conditions
     if len(iv_process) > 0 and '变量' in iv_process.columns:
         to_drop = iv_process['变量'].tolist()
         data = data.drop(columns=[c for c in to_drop if c in data.columns])
@@ -212,36 +212,36 @@ def drop_lowiv_features(data: pd.DataFrame, features: List[str],
 
 def drop_highcorr_features(data: pd.DataFrame, features: List[str],
                            threshold: float = 0.8, gain_dict: dict = None, top_n_keep: int = 20) -> tuple:
-    """剔除高相关变量 - 基于原始gain，每次剔除一个变量
+    """Drop high correlation features - based on original gain, drop one feature at a time
     
     Args:
-        data: 数据
-        features: 特征列表
-        threshold: 相关性阈值
-        gain_dict: 变量到原始gain的映射字典
-        top_n_keep: 保留原始gain排名前N的变量
+        data: Data
+        features: Feature list
+        threshold: Correlation threshold
+        gain_dict: Mapping dictionary from feature to original gain
+        top_n_keep: Keep top N features by original gain ranking
     
     Returns:
-        data: 剔除后的数据
-        dropped_info: 剔除信息
+        data: Data after dropping
+        dropped_info: Drop information
     """
     if gain_dict is None:
         gain_dict = {}
     
-    # 获取当前特征列表（只存在于数据中的特征）
+    # Get current feature list (only features that exist in data)
     current_features = [f for f in features if f in data.columns]
     
     if len(current_features) == 0:
         return data, pd.DataFrame(columns=['变量', '相关变量', '去除条件'])
     
-    # 确定需要保留的变量（原始gain排名前N）
+    # Determine features to keep (top N by original gain)
     if gain_dict:
-        # 只考虑存在于当前特征中的变量
+        # Only consider features that exist in current features
         current_gain_dict = {k: v for k, v in gain_dict.items() if k in current_features}
         if current_gain_dict:
             sorted_features = sorted(current_gain_dict.keys(), key=lambda x: current_gain_dict[x], reverse=True)
             top_features = set(sorted_features[:top_n_keep])
-            # 创建变量到排名的映射
+            # Create mapping from feature to ranking
             rank_dict = {v: i+1 for i, v in enumerate(sorted_features)}
         else:
             top_features = set()
@@ -252,9 +252,9 @@ def drop_highcorr_features(data: pd.DataFrame, features: List[str],
     
     dropped_info = []
     
-    # 循环剔除，直到没有高相关变量对
+    # Loop to drop until no high correlation feature pairs
     while True:
-        # 重新计算相关性矩阵（只针对当前剩余的特征）
+        # Recalculate correlation matrix (only for current remaining features)
         current_features = [f for f in current_features if f in data.columns]
         if len(current_features) < 2:
             break
@@ -262,7 +262,7 @@ def drop_highcorr_features(data: pd.DataFrame, features: List[str],
         corr = data[current_features].corr().abs()
         upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
         
-        # 找到所有高相关变量对
+        # Find all high correlation feature pairs
         high_corr_pairs = []
         for i, col1 in enumerate(upper.columns):
             for col2 in upper.columns[i+1:]:
@@ -273,17 +273,17 @@ def drop_highcorr_features(data: pd.DataFrame, features: List[str],
         if not high_corr_pairs:
             break
         
-        # 对于每个高相关变量对，选择原始gain较小的变量作为候选剔除
+        # For each high correlation feature pair, select the feature with smaller original gain as candidate for dropping
         candidates = set()
         for col1, col2, corr_val in high_corr_pairs:
-            # 跳过top N保留的变量
+            # Skip top N kept features
             if col1 in top_features and col2 in top_features:
                 continue
             
             gain1 = gain_dict.get(col1, 0)
             gain2 = gain_dict.get(col2, 0)
             
-            # 选择原始gain较小的变量
+            # Select feature with smaller original gain
             if gain1 <= gain2:
                 candidates.add(col1)
             else:
@@ -292,13 +292,13 @@ def drop_highcorr_features(data: pd.DataFrame, features: List[str],
         if not candidates:
             break
         
-        # 在候选变量中选择原始gain最小的进行剔除
+        # Select feature with smallest original gain among candidates for dropping
         candidates_list = list(candidates)
         candidates_with_gain = [(c, gain_dict.get(c, 0)) for c in candidates_list]
         candidates_with_gain.sort(key=lambda x: x[1])
         to_drop = candidates_with_gain[0][0]
         
-        # 找到与该变量高相关的所有变量
+        # Find all features highly correlated with this feature
         related_vars = []
         for col1, col2, corr_val in high_corr_pairs:
             if col1 == to_drop:
@@ -306,10 +306,10 @@ def drop_highcorr_features(data: pd.DataFrame, features: List[str],
             elif col2 == to_drop:
                 related_vars.append((col1, corr_val))
         
-        # 记录剔除信息
-        # 相关变量列：显示变量名和相似度值（相关性值）
-        related_str = ','.join([f"{v}(相似度={c:.4f})" for v, c in related_vars])
-        # 去除条件列：显示相关变量及其对应的gain值
+        # Record drop information
+        # Related variables column: show feature name and similarity value (correlation value)
+        related_str = ','.join([f"{v}(similarity={c:.4f})" for v, c in related_vars])
+        # Removal condition column: show related features and their corresponding gain values
         gain_str = ','.join([f"{v}(gain={gain_dict.get(v, 0):.2f})" for v, c in related_vars])
         dropped_info.append({
             '变量': to_drop,
@@ -319,13 +319,13 @@ def drop_highcorr_features(data: pd.DataFrame, features: List[str],
             '去除条件': gain_str
         })
         
-        # 从数据中删除该变量
+        # Delete this feature from data
         data = data.drop(columns=[to_drop], errors='ignore')
         current_features.remove(to_drop)
         
-        print(f"   剔除变量: {to_drop} (原始gain={gain_dict.get(to_drop, 0):.2f})")
+        print(f"   Dropped feature: {to_drop} (original gain={gain_dict.get(to_drop, 0):.2f})")
     
-    # 转换为DataFrame并按原始gain降序排序
+    # Convert to DataFrame and sort by original gain in descending order
     dropped_df = pd.DataFrame(dropped_info)
     if len(dropped_df) > 0:
         dropped_df = dropped_df.sort_values('原始gain', ascending=False)
@@ -336,29 +336,29 @@ def drop_highcorr_features(data: pd.DataFrame, features: List[str],
 
 def drop_highnoise_features(data: pd.DataFrame, features: List[str],
                            n_estimators: int = 100, max_depth: int = 5, gain_threshold: float = 50) -> tuple:
-    """Null Importance去除高噪音变量"""
-    # 检查特征列表是否为空
+    """Null Importance to remove high noise features"""
+    # Check if feature list is empty
     if len(features) == 0:
-        print("   没有特征需要处理")
+        print("   No features to process")
         return data, pd.DataFrame(columns=['变量', '原始gain', '反转后gain'])
     
-    # 检查数据是否足够
+    # Check if data is sufficient
     if len(data) < 1000:
-        print(f"   数据量不足({len(data)}条)，跳过Null Importance")
+        print(f"   Insufficient data ({len(data)} rows), skip Null Importance")
         return data, pd.DataFrame(columns=['变量', '原始gain', '反转后gain'])
     
     X = data[features].copy()
     Y = data['new_target'].copy()
     
-    # 检查X是否为空或包含NaN
+    # Check if X is empty or contains NaN
     if X.shape[1] == 0:
-        print("   特征数据为空，跳过Null Importance")
+        print("   Feature data is empty, skip Null Importance")
         return data, pd.DataFrame(columns=['变量', '原始gain', '反转后gain'])
     
-    # 填充NaN
+    # Fill NaN
     X = X.fillna(0)
     
-    # 打乱标签
+    # Shuffle labels
     Y_permuted = Y.copy()
     for _ in range(20):
         Y_permuted = np.random.permutation(Y_permuted)
@@ -377,15 +377,15 @@ def drop_highnoise_features(data: pd.DataFrame, features: List[str],
     
     results, results_permuted = [], []
     
-    print("Null Importance计算中...")
+    print("Null Importance calculation in progress...")
     for i in range(2):
         random_n = np.random.randint(30)
         
         X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.3, random_state=random_n)
         
-        # 检查训练数据是否有效
+        # Check if training data is valid
         if X_train.shape[0] == 0 or X_test.shape[0] == 0:
-            print(f"  轮次{i+1}: 数据分割失败，跳过")
+            print(f"  Round {i+1}: Data split failed, skip")
             continue
         
         clf.fit(X_train, y_train)
@@ -393,7 +393,7 @@ def drop_highnoise_features(data: pd.DataFrame, features: List[str],
         X_train_, X_test_, y_train_, y_test_ = train_test_split(X, Y_permuted, test_size=0.3, random_state=random_n)
         
         if X_train_.shape[0] == 0 or X_test_.shape[0] == 0:
-            print(f"  轮次{i+1}: 打乱数据分割失败，跳过")
+            print(f"  Round {i+1}: Shuffled data split failed, skip")
             continue
         
         clf_permuted.fit(X_train_, y_train_)
@@ -412,11 +412,11 @@ def drop_highnoise_features(data: pd.DataFrame, features: List[str],
         
         train_auc = roc_auc_score(y_train, clf.predict_proba(X_train)[:, 1])
         test_auc = roc_auc_score(y_test, clf.predict_proba(X_test)[:, 1])
-        print(f"  轮次{i+1}: train_auc={train_auc:.3f}, test_auc={test_auc:.3f}")
+        print(f"  Round {i+1}: train_auc={train_auc:.3f}, test_auc={test_auc:.3f}")
     
-    # 检查是否有有效结果
+    # Check if there are valid results
     if len(results) == 0 or len(results_permuted) == 0:
-        print("   没有有效的训练结果，跳过Null Importance")
+        print("   No valid training results, skip Null Importance")
         return data, pd.DataFrame(columns=['变量', '原始gain', '反转后gain'])
     
     imp_real_avg = pd.concat(results).groupby('feature')['gain'].mean().reset_index()
@@ -426,34 +426,34 @@ def drop_highnoise_features(data: pd.DataFrame, features: List[str],
     comparison['gain_real'] = comparison['gain_real'].fillna(0)
     comparison['gain_perm'] = comparison['gain_perm'].fillna(0)
     
-    # 使用反转前后gain值差别绝对值小于50的条件
+    # Use condition where absolute difference of gain values before and after permutation is less than 50
     comparison['gain_diff'] = (comparison['gain_real'] - comparison['gain_perm']).abs()
     noise_features = comparison[comparison['gain_diff'] < gain_threshold]['feature'].tolist()
     
-    # 列出所有变量的原始gain和反转后gain
+    # List original gain and permuted gain for all features
     dropped_info = pd.DataFrame({
         '变量': comparison['feature'].values,
         '原始gain': comparison['gain_real'].values,
         '反转后gain': comparison['gain_perm'].values
     })
-    # 增加状态列，去除的要标明去除，不去除的标明保留
+    # Add status column, mark dropped features as '去除', kept features as '保留'
     dropped_info['状态'] = dropped_info.apply(
         lambda x: '去除' if np.abs(x['原始gain'] - x['反转后gain']) < gain_threshold else '保留', axis=1
     )
-    # 按原始gain降序排序
+    # Sort by original gain in descending order
     dropped_info = dropped_info.sort_values('原始gain', ascending=False)
     dropped_info = dropped_info.reset_index(drop=True)
-    # 添加原始gain排名列
+    # Add original gain ranking column
     dropped_info['原始gain排名'] = range(1, len(dropped_info) + 1)
     
     data = data.drop(columns=[c for c in noise_features if c in data.columns])
     
-    print(f"  剔除{len(noise_features)}个噪音变量")
+    print(f"  Dropped {len(noise_features)} noise features")
     return data, dropped_info
 
 
 def _calc_single_psi(args):
-    """计算单个机构单个变量的PSI - NaN作为单独箱子"""
+    """Calculate PSI for a single organization and single feature - NaN as separate bin"""
     org, train_month, test_month, train_n, test_n, f, data_ref, min_sample = args
     
     try:
@@ -461,15 +461,15 @@ def _calc_single_psi(args):
         train_data = org_data[org_data['new_date_ym'] == train_month]
         test_data = org_data[org_data['new_date_ym'] == test_month]
         
-        # 获取数据
+        # Get data
         train_vals = train_data[f].values
         test_vals = test_data[f].values
         
-        # 标记NaN
+        # Mark NaN
         train_nan_mask = pd.isna(train_vals)
         test_nan_mask = pd.isna(test_vals)
         
-        # 非NaN值用于分箱
+        # Non-NaN values for binning
         train_nonan = train_vals[~train_nan_mask]
         test_nonan = test_vals[~test_nan_mask]
         
@@ -480,13 +480,13 @@ def _calc_single_psi(args):
                 '样本数': train_n
             }
         
-        # 基于非NaN数据分箱（10分箱）
+        # Bin based on non-NaN data (10 bins)
         try:
             bins = pd.qcut(train_nonan, q=10, duplicates='drop', retbins=True)[1]
         except:
             bins = pd.cut(train_nonan, bins=10, retbins=True)[1]
         
-        # 计算各箱子占比（包含NaN箱子）
+        # Calculate proportion of each bin (including NaN bin)
         train_counts = []
         test_counts = []
         
@@ -498,19 +498,19 @@ def _calc_single_psi(args):
                 train_counts.append((~train_nan_mask & (train_vals > bins[i-1]) & (train_vals <= bins[i])).sum())
                 test_counts.append((~test_nan_mask & (test_vals > bins[i-1]) & (test_vals <= bins[i])).sum())
         
-        # NaN箱子
+        # NaN bin
         train_counts.append(train_nan_mask.sum())
         test_counts.append(test_nan_mask.sum())
         
-        # 转为占比
+        # Convert to proportions
         train_pct = np.array(train_counts) / len(train_vals)
         test_pct = np.array(test_counts) / len(test_vals)
         
-        # 避免0值
+        # Avoid 0 values
         train_pct = np.where(train_pct == 0, 1e-6, train_pct)
         test_pct = np.where(test_pct == 0, 1e-6, test_pct)
         
-        # 计算PSI
+        # Calculate PSI
         psi = np.sum((test_pct - train_pct) * np.log(test_pct / train_pct))
         
         return {
@@ -529,24 +529,24 @@ def _calc_single_psi(args):
 def drop_highpsi_features(data: pd.DataFrame, features: List[str],
                          psi_threshold: float = 0.1, max_months_ratio: float = 1/3,
                          max_orgs: int = 4, min_sample_per_month: int = 100, n_jobs: int = 4) -> tuple:
-    """剔除高PSI变量 - 分机构+逐月份版本
+    """Drop high PSI features - by organization + month-by-month version
     
-    多进程在变量层面，每个机构循环，机构内变量并行计算
+    Multi-processing at feature level, loop through organizations, parallel calculation of features within organizations
     
     Args:
-        psi_threshold: PSI阈值，超过此值认为不稳定
-        max_months_ratio: 最大容忍月份比例，超过此比例月份PSI超过阈值则记录到处理表
-        max_orgs: 最大容忍机构数，超过此数机构不稳定则记录到处理表
-        min_sample_per_month: 每月最小样本数
+        psi_threshold: PSI threshold, values above this are considered unstable
+        max_months_ratio: Maximum tolerated month ratio, if more than this ratio of months have PSI above threshold, record in processing table
+        max_orgs: Maximum tolerated organization count, if more than this number of organizations are unstable, record in processing table
+        min_sample_per_month: Minimum sample count per month
     
     Returns:
-        data: 剔除后的数据
-        psi_detail: PSI明细（每个变量在每个机构每个月上的PSI值）
-        psi_process: PSI处理表（不满足设定条件的变量）
+        data: Data after dropping
+        psi_detail: PSI details (PSI value of each feature in each organization each month)
+        psi_process: PSI processing table (features that do not meet the conditions)
     """
     orgs = data['new_org'].unique()
     
-    # 构建任务列表：每个机构、每对月份、每个变量
+    # Build task list: each organization, each pair of months, each feature
     tasks = []
     for org in orgs:
         org_data = data[data['new_org'] == org]
@@ -568,8 +568,8 @@ def drop_highpsi_features(data: pd.DataFrame, features: List[str],
             for f in features:
                 tasks.append((org, train_month, test_month, train_n, test_n, f, data, min_sample_per_month))
     
-    # 多进程计算PSI（变量层面并行）
-    print(f"   PSI计算: {len(tasks)}个任务, 使用{n_jobs}进程")
+    # Multi-process PSI calculation (parallel at feature level)
+    print(f"   PSI calculation: {len(tasks)} tasks, using {n_jobs} processes")
     results = Parallel(n_jobs=n_jobs, verbose=0)(delayed(_calc_single_psi)(task) for task in tasks)
     
     psi_df = pd.DataFrame(results)
@@ -577,35 +577,35 @@ def drop_highpsi_features(data: pd.DataFrame, features: List[str],
     if len(psi_df) == 0:
         return data, pd.DataFrame(columns=['变量', '机构', '月份', 'PSI值']), pd.DataFrame(columns=['变量', '处理原因'])
     
-    # 筛选有效计算的记录
+    # Filter valid calculation records
     valid_psi = psi_df[psi_df['有效计算'] == 1].copy()
     
     if len(valid_psi) == 0:
         return data, pd.DataFrame(columns=['变量', '机构', '月份', 'PSI值']), pd.DataFrame(columns=['变量', '处理原因'])
     
-    # PSI明细表：每个变量在每个机构每个月上的PSI值
-    # 日期改为单个月份，初始月份PSI值为0
+    # PSI detail table: PSI value of each feature in each organization each month
+    # Change date to single month, initial month PSI value is 0
     psi_detail = valid_psi[['机构', '日期', '变量', 'PSI']].copy()
     
-    # 解析日期，提取测试月份
+    # Parse date, extract test month
     psi_detail['月份'] = psi_detail['日期'].apply(lambda x: x.split('->')[1] if '->' in x else x)
     psi_detail = psi_detail.rename(columns={'PSI': 'PSI值'})
     
-    # 按照变量，机构，月份升序排序
+    # Sort by feature, organization, month in ascending order
     psi_detail = psi_detail.sort_values(['变量', '机构', '月份'], ascending=[True, True, True])
     
-    # 获取所有机构和月份
+    # Get all organizations and months
     all_orgs = sorted(psi_detail['机构'].unique())
     all_vars = sorted(psi_detail['变量'].unique())
     
-    # 构建完整的PSI明细表（包含初始月份，PSI值为0）
+    # Build complete PSI detail table (including initial month, PSI value is 0)
     psi_detail_list = []
     for org in all_orgs:
         org_data = psi_detail[psi_detail['机构'] == org]
         if len(org_data) == 0:
             continue
         
-        # 获取该机构的所有月份
+        # Get all months for this organization
         months = sorted(org_data['月份'].unique())
         
         for var in all_vars:
@@ -613,7 +613,7 @@ def drop_highpsi_features(data: pd.DataFrame, features: List[str],
             if len(var_data) == 0:
                 continue
             
-            # 初始月份PSI值为0
+            # Initial month PSI value is 0
             psi_detail_list.append({
                 '机构': org,
                 '变量': var,
@@ -621,7 +621,7 @@ def drop_highpsi_features(data: pd.DataFrame, features: List[str],
                 'PSI值': 0.0
             })
             
-            # 后续月份PSI值为计算结果
+            # Subsequent months PSI values are calculation results
             for i in range(1, len(months)):
                 month = months[i]
                 var_month_data = var_data[var_data['月份'] == month]
@@ -639,27 +639,27 @@ def drop_highpsi_features(data: pd.DataFrame, features: List[str],
     psi_detail = pd.DataFrame(psi_detail_list)
     psi_detail = psi_detail[['机构', '变量', '月份', 'PSI值']]
     psi_detail = psi_detail.reset_index(drop=True)
-    # 按照变量，机构，月份升序排序
+    # Sort by feature, organization, month in ascending order
     psi_detail = psi_detail.sort_values(['变量', '机构', '月份'], ascending=[True, True, True])
     psi_detail = psi_detail.reset_index(drop=True)
     
-    # 标记不稳定
+    # Mark unstable
     valid_psi['不稳定'] = (valid_psi['PSI'] > psi_threshold).astype(int)
     
-    # 汇总：每个机构每个变量的不稳定月份数和总月份数
+    # Summary: number of unstable months and total months for each organization each feature
     org_summary = valid_psi.groupby(['机构', '变量']).agg(
         不稳定月份数=('不稳定', 'sum'),
         总月份数=('变量', 'count')
     ).reset_index()
     
-    # 标记每个机构每个变量是否不稳定
-    # 确保阈值至少为1，避免机构月份数少时过于严格
+    # Mark whether each organization each feature is unstable
+    # Ensure threshold is at least 1, avoid being too strict when organization has few months
     org_summary['不稳定阈值'] = org_summary['总月份数'].apply(
         lambda x: max(1, int(x * max_months_ratio))
     )
     org_summary['是否不稳定'] = org_summary['不稳定月份数'] >= org_summary['不稳定阈值']
     
-    # 机构层面汇总：不稳定的机构数
+    # Organization level summary: number of unstable organizations
     org_count = len(orgs)
     channel_summary = org_summary.groupby('变量').apply(
         lambda x: pd.Series({
@@ -668,25 +668,25 @@ def drop_highpsi_features(data: pd.DataFrame, features: List[str],
         })
     ).reset_index()
     
-    # 标记需要处理的变量
+    # Mark features that need processing
     channel_summary['需处理'] = channel_summary['不稳定机构数'] >= max_orgs
     channel_summary['处理原因'] = channel_summary.apply(
-        lambda x: f'在{x["不稳定机构数"]}个机构上PSI不稳定' if x['需处理'] else '', axis=1
+        lambda x: f'PSI unstable in {x["不稳定机构数"]} organizations' if x['需处理'] else '', axis=1
     )
     
-    # 获取每个变量的不稳定机构列表
+    # Get list of unstable organizations for each feature
     unstable_orgs_dict = {}
     for var in org_summary['变量'].unique():
         var_orgs = org_summary[(org_summary['变量'] == var) & (org_summary['是否不稳定'] == True)]['机构'].tolist()
         unstable_orgs_dict[var] = var_orgs
     
-    # PSI处理表：不满足设定条件的变量
+    # PSI processing table: features that do not meet the conditions
     psi_process = channel_summary[channel_summary['需处理']].copy()
     psi_process['不稳定机构'] = psi_process['变量'].apply(lambda x: ','.join(unstable_orgs_dict.get(x, [])))
     psi_process = psi_process[['变量', '处理原因', '不稳定机构']]
     psi_process = psi_process.reset_index(drop=True)
     
-    # 筛选要剔除的变量
+    # Filter features to drop
     if len(psi_process) > 0 and '变量' in psi_process.columns:
         to_drop_vars = psi_process['变量'].tolist()
         data = data.drop(columns=[c for c in to_drop_vars if c in data.columns])
@@ -695,33 +695,33 @@ def drop_highpsi_features(data: pd.DataFrame, features: List[str],
 
 
 def iv_distribution_by_org(iv_detail: pd.DataFrame, oos_orgs: list = None, iv_bins: list = [0, 0.02, 0.05, 0.1, float('inf')]) -> pd.DataFrame:
-    """统计每个机构下不同IV区间的变量个数和占比
+    """Count number and proportion of features in different IV ranges for each organization
     
     Args:
-        iv_detail: IV明细表（包含变量、整体、各机构列）
-        oos_orgs: 贷外机构列表
-        iv_bins: IV区间边界 [0, 0.02, 0.05, 0.1, inf]
+        iv_detail: IV detail table (containing feature, overall, organization columns)
+        oos_orgs: Out-of-sample organization list
+        iv_bins: IV range boundaries [0, 0.02, 0.05, 0.1, inf]
     
     Returns:
-        IV分布统计表
+        IV distribution statistics table
     """
     if oos_orgs is None:
         oos_orgs = []
     
-    # 获取机构列（排除'变量'和'整体'列）
+    # Get organization columns (exclude '变量' and '整体' columns)
     org_cols = [c for c in iv_detail.columns if c not in ['变量', '整体']]
     
-    # 定义区间标签
+    # Define range labels
     bin_labels = ['[0, 0.02)', '[0.02, 0.05)', '[0.05, 0.1)', '[0.1, +∞)']
     
     result = []
     
-    # 各机构统计（不计算整体）
+    # Statistics for each organization (not including overall)
     for org in org_cols:
         org_iv = iv_detail[org].dropna()
         total_vars = len(org_iv)
         
-        # 判断机构类型
+        # Determine organization type
         org_type = '贷外' if org in oos_orgs else '建模'
         
         for i in range(len(iv_bins) - 1):
@@ -744,34 +744,34 @@ def iv_distribution_by_org(iv_detail: pd.DataFrame, oos_orgs: list = None, iv_bi
 
 
 def psi_distribution_by_org(psi_detail: pd.DataFrame, oos_orgs: list = None, psi_bins: list = [0, 0.05, 0.1, float('inf')]) -> pd.DataFrame:
-    """统计每个机构下不同PSI区间的变量个数和占比
+    """Count number and proportion of features in different PSI ranges for each organization
     
     Args:
-        psi_detail: PSI明细表（包含机构、变量、月份、PSI值列）
-        oos_orgs: 贷外机构列表
-        psi_bins: PSI区间边界 [0, 0.05, 0.1, inf]
+        psi_detail: PSI detail table (containing organization, feature, month, PSI value columns)
+        oos_orgs: Out-of-sample organization list
+        psi_bins: PSI range boundaries [0, 0.05, 0.1, inf]
     
     Returns:
-        PSI分布统计表
+        PSI distribution statistics table
     """
     if oos_orgs is None:
         oos_orgs = []
     
-    # 定义区间标签
+    # Define range labels
     bin_labels = ['[0, 0.05)', '[0.05, 0.1)', '[0.1, +∞)']
     
     result = []
     
-    # 获取所有机构
+    # Get all organizations
     orgs = psi_detail['机构'].unique()
     
     for org in orgs:
         org_data = psi_detail[psi_detail['机构'] == org]
         
-        # 判断机构类型
+        # Determine organization type
         org_type = '贷外' if org in oos_orgs else '建模'
         
-        # 对每个变量，取其最大PSI值
+        # For each feature, take its maximum PSI value
         var_max_psi = org_data.groupby('变量')['PSI值'].max()
         total_vars = len(var_max_psi)
         
@@ -797,35 +797,35 @@ def psi_distribution_by_org(psi_detail: pd.DataFrame, oos_orgs: list = None, psi
 def value_ratio_distribution_by_org(data: pd.DataFrame, features: List[str], 
                                      oos_orgs: list = None, 
                                      value_bins: list = [0, 0.15, 0.35, 0.65, 0.95, 1.0]) -> pd.DataFrame:
-    """统计每个机构下不同有值率区间的变量个数和占比
+    """Count number and proportion of features in different value ratio ranges for each organization
     
     Args:
-        data: 数据（包含new_org列）
-        features: 特征列表
-        oos_orgs: 贷外机构列表
-        value_bins: 有值率区间边界 [0, 0.15, 0.35, 0.65, 0.95, 1.0]
+        data: Data (containing new_org column)
+        features: Feature list
+        oos_orgs: Out-of-sample organization list
+        value_bins: Value ratio range boundaries [0, 0.15, 0.35, 0.65, 0.95, 1.0]
     
     Returns:
-        有值率分布统计表
+        Value ratio distribution statistics table
     """
     if oos_orgs is None:
         oos_orgs = []
     
-    # 定义区间标签
+    # Define range labels
     bin_labels = ['[0, 15%)', '[15%, 35%)', '[35%, 65%)', '[65%, 95%)', '[95%, 100%]']
     
     result = []
     
-    # 获取所有机构
+    # Get all organizations
     orgs = data['new_org'].unique()
     
     for org in orgs:
         org_data = data[data['new_org'] == org]
         
-        # 判断机构类型
+        # Determine organization type
         org_type = '贷外' if org in oos_orgs else '建模'
         
-        # 计算每个变量的有值率（非NaN的占比）
+        # Calculate value ratio for each feature (proportion of non-NaN)
         value_ratios = {}
         for f in features:
             if f in org_data.columns:
@@ -833,7 +833,7 @@ def value_ratio_distribution_by_org(data: pd.DataFrame, features: List[str],
                 total_count = len(org_data)
                 value_ratios[f] = non_null_count / total_count if total_count > 0 else 0
         
-        # 统计各区间的变量个数
+        # Count number of features in each range
         total_vars = len(value_ratios)
         for i in range(len(value_bins) - 1):
             lower = value_bins[i]
@@ -856,26 +856,26 @@ def value_ratio_distribution_by_org(data: pd.DataFrame, features: List[str],
 
 def calculate_iv_by_org(data: pd.DataFrame, features: List[str], 
                         n_jobs: int = 4) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """计算分机构和整体的IV
+    """Calculate IV by organization and overall
     
     Returns:
-        iv_by_org: 分机构IV明细
-        iv_overall: 整体IV
+        iv_by_org: IV details by organization
+        iv_overall: Overall IV
     """
     from references.func import calculate_iv
     
     orgs = data['new_org'].unique()
     
-    # 整体IV
+    # Overall IV
     iv_overall = calculate_iv(data, features, n_jobs=n_jobs)
     iv_overall['类型'] = '整体'
     
-    # 分机构IV
+    # IV by organization
     iv_by_org = []
     for org in orgs:
         org_data = data[data['new_org'] == org]
-        org_iv = calculate_iv(org_data, features, n_jobs=1)  # 单机构用单进程
-        if len(org_iv) > 0:  # 只添加非空结果
+        org_iv = calculate_iv(org_data, features, n_jobs=1)  # Single process for single organization
+        if len(org_iv) > 0:  # Only add non-empty results
             org_iv['机构'] = org
             org_iv['类型'] = '分机构'
             iv_by_org.append(org_iv)
@@ -888,16 +888,16 @@ def calculate_iv_by_org(data: pd.DataFrame, features: List[str],
 def calculate_psi_detail(data: pd.DataFrame, features: List[str],
                          max_psi: float = 0.1, min_months_unstable: int = 3,
                          min_sample: int = 100, n_jobs: int = 4) -> tuple:
-    """计算每个变量在每个机构下的逐月PSI明细，并标记是否剔除
+    """Calculate month-by-month PSI details for each feature in each organization, and mark whether to drop
     
     Returns:
-        data: 剔除后的数据
-        dropped: 被剔除的变量汇总
-        psi_summary: 完整的PSI明细（包含是否剔除标识）
+        data: Data after dropping
+        dropped: Summary of dropped features
+        psi_summary: Complete PSI details (including drop flag)
     """
     orgs = data['new_org'].unique()
     
-    # 构建任务
+    # Build tasks
     tasks = []
     for org in orgs:
         org_data = data[data['new_org'] == org]
@@ -919,8 +919,8 @@ def calculate_psi_detail(data: pd.DataFrame, features: List[str],
             for f in features:
                 tasks.append((org, train_month, test_month, train_n, test_n, f, data, min_sample))
     
-    # 多进程计算
-    print(f"   PSI计算: {len(tasks)}个任务, 使用{n_jobs}进程")
+    # Multi-process calculation
+    print(f"   PSI calculation: {len(tasks)} tasks, using {n_jobs} processes")
     results = Parallel(n_jobs=n_jobs, verbose=0)(delayed(_calc_single_psi)(task) for task in tasks)
     
     psi_df = pd.DataFrame(results)
@@ -928,20 +928,20 @@ def calculate_psi_detail(data: pd.DataFrame, features: List[str],
     if len(psi_df) == 0:
         return data, pd.DataFrame(columns=['变量', '机构数', '不稳定机构数', '原因']), pd.DataFrame(columns=['变量', '机构数', '不稳定机构数', '是否剔除', '去除条件'])
     
-    # 筛选有效计算的记录
+    # Filter valid calculation records
     valid_psi = psi_df[psi_df['有效计算'] == 1].copy()
     
     if len(valid_psi) == 0:
         return data, pd.DataFrame(columns=['变量', '机构数', '不稳定机构数', '原因']), pd.DataFrame(columns=['变量', '机构数', '不稳定机构数', '是否剔除', '去除条件'])
     
-    # 标记不稳定
+    # Mark unstable
     valid_psi['不稳定'] = (valid_psi['PSI'] > max_psi).astype(int)
     
-    # 汇总：每个机构每个变量的不稳定月份数
+    # Summary: number of unstable months for each organization each feature
     org_summary = valid_psi.groupby(['机构', '变量'])['不稳定'].sum().reset_index()
     org_summary.columns = ['机构', '变量', '不稳定月份数']
     
-    # 机构层面汇总：超过min_months_unstable个月不稳定的变量
+    # Organization level summary: features with more than min_months_unstable unstable months
     org_count = len(orgs)
     channel_summary = org_summary.groupby('变量').apply(
         lambda x: pd.Series({
@@ -950,21 +950,21 @@ def calculate_psi_detail(data: pd.DataFrame, features: List[str],
         })
     ).reset_index()
     
-    # 标记需要删除的变量（超过1/3机构不稳定）
+    # Mark features that need to be dropped (more than 1/3 organizations unstable)
     channel_summary['需剔除'] = channel_summary['不稳定机构数'] > (channel_summary['机构数'] / 3)
     channel_summary['是否剔除'] = channel_summary['需剔除'].astype(int)
     channel_summary['去除条件'] = channel_summary.apply(
-        lambda x: f'在{org_count}个机构中有超过1/3机构连续{min_months_unstable}月PSI>{max_psi}' if x['需剔除'] else '', axis=1
+        lambda x: f'More than 1/3 of {org_count} organizations have PSI>{max_psi} for {min_months_unstable} consecutive months' if x['需剔除'] else '', axis=1
     )
     
-    # 筛选要剔除的变量
+    # Filter features to drop
     if len(channel_summary) > 0 and '变量' in channel_summary.columns:
         to_drop_vars = channel_summary[channel_summary['需剔除']]['变量'].tolist()
         data = data.drop(columns=[c for c in to_drop_vars if c in data.columns])
     
-    # 整理剔除信息（只返回被剔除的变量）
+    # Organize drop information (only return dropped features)
     dropped = channel_summary[channel_summary['需剔除']].copy()
-    dropped['原因'] = f'在{org_count}个机构中有超过1/3机构连续{min_months_unstable}月PSI>{max_psi}'
+    dropped['原因'] = f'More than 1/3 of {org_count} organizations have PSI>{max_psi} for {min_months_unstable} consecutive months'
     
     return data, dropped[['变量', '机构数', '不稳定机构数', '原因']], channel_summary[['变量', '机构数', '不稳定机构数', '是否剔除', '去除条件']]
 
@@ -978,19 +978,19 @@ def export_cleaning_report(filepath: str, steps: list,
                            iv_distribution: pd.DataFrame = None,
                            psi_distribution: pd.DataFrame = None,
                            value_ratio_distribution: pd.DataFrame = None):
-    """导出清洗报告到xlsx - 每个sheet一个步骤
+    """Export cleaning report to xlsx - one sheet per step
     
     Args:
-        filepath: 输出路径
-        steps: 清洗步骤列表 [(步骤名, DataFrame), ...]
-        iv_detail: IV明细（每个变量在每个机构上以及整体上的IV值）
-        iv_process: IV处理表（不满足设定条件的变量）
-        psi_detail: PSI明细（每个变量在每个机构每个月上的PSI值）
-        psi_process: PSI处理表（不满足设定条件的变量）
-        params: 超参数字典，用于动态生成依据条件
-        iv_distribution: IV分布统计表
-        psi_distribution: PSI分布统计表
-        value_ratio_distribution: 有值率分布统计表
+        filepath: Output path
+        steps: Cleaning step list [(step name, DataFrame), ...]
+        iv_detail: IV details (IV value of each feature in each organization and overall)
+        iv_process: IV processing table (features that do not meet the conditions)
+        psi_detail: PSI details (PSI value of each feature in each organization each month)
+        psi_process: PSI processing table (features that do not meet the conditions)
+        params: Hyperparameter dictionary, used to dynamically generate conditions
+        iv_distribution: IV distribution statistics table
+        psi_distribution: PSI distribution statistics table
+        value_ratio_distribution: Value ratio distribution statistics table
     """
     from openpyxl import load_workbook
     
@@ -1000,39 +1000,39 @@ def export_cleaning_report(filepath: str, steps: list,
         wb = Workbook()
         wb.remove(wb.active)
     
-    # 汇总sheet - 只显示真正的筛选步骤
+    # Summary sheet - only show real filtering steps
     if '汇总' in wb.sheetnames:
         del wb['汇总']
     ws = wb.create_sheet('汇总', 0)
-    ws['A1'] = '数据清洗报告'
-    ws['A2'] = f'生成时间: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'
-    ws['A4'] = '步骤'
-    ws['B4'] = '操作明细'
-    ws['C4'] = '操作结果'
-    ws['D4'] = '依据条件'
+    ws['A1'] = 'Data Cleaning Report'
+    ws['A2'] = f'Generated at: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}'
+    ws['A4'] = 'Step'
+    ws['B4'] = 'Operation Details'
+    ws['C4'] = 'Operation Result'
+    ws['D4'] = 'Condition'
     
-    # 只显示真正的筛选步骤（不包含明细和分布统计）
+    # Only show real filtering steps (excluding details and distribution statistics)
     filter_steps = [
         'Step4-异常月份处理', 'Step6-高缺失率处理', 'Step7-IV处理', 
         'Step8-PSI处理', 'Step9-null importance处理', 'Step10-高相关性剔除'
     ]
     
-    # 需要排除的步骤（明细和分布统计）
+    # Steps to exclude (details and distribution statistics)
     exclude_steps = [
         'Step7-IV明细', 'Step7-IV分布统计', 'Step8-PSI明细', 
         'Step8-PSI分布统计', 'Step5-有值率分布统计'
     ]
     
-    # 需要显示删除变量数量的步骤
+    # Steps that need to show drop count
     show_drop_count_steps = ['分离OOS数据']
     
-    # 只显示参数标准的步骤（不显示操作结果）
+    # Steps that only show parameter standards (no operation result)
     show_param_only_steps = ['机构样本统计', '缺失率明细']
     
-    # 添加说明：各步骤独立执行
-    ws['A3'] = '说明：各筛选步骤独立执行，不删除数据，仅统计不满足条件的变量'
+    # Add note: each step is executed independently
+    ws['A3'] = 'Note: Each filtering step is executed independently, data is not deleted, only statistics of features that do not meet conditions are recorded'
     
-    # 获取参数，如果没有传入则使用默认值
+    # Get parameters, use default values if not provided
     if params is None:
         params = {}
     
@@ -1049,49 +1049,49 @@ def export_cleaning_report(filepath: str, steps: list,
     
     step_num = 1
     for name, df in steps:
-        # 跳过明细和分布统计步骤
+        # Skip detail and distribution statistics steps
         if name in exclude_steps:
             continue
         
-        # 去掉操作明细中的StepX-前缀
+        # Remove StepX- prefix from operation details
         display_name = name.replace('Step4-', '').replace('Step6-', '').replace('Step7-', '').replace('Step8-', '').replace('Step9-', '').replace('Step10-', '')
         
-        # 只显示参数标准的步骤（不显示操作结果）
+        # Only show parameter standard steps (no operation result)
         if name in show_param_only_steps:
             ws.cell(4+step_num, 1, step_num)
             ws.cell(4+step_num, 2, display_name)
             result = ''
-            # 依据条件：显示参数标准
+            # Condition: show parameter standards
             if name == '机构样本统计':
-                condition = '统计各机构的样本数量和坏样本率'
+                condition = 'Statistics of sample count and bad sample rate for each organization'
             elif name == '缺失率明细':
-                condition = '计算各变量的缺失率'
+                condition = 'Calculate missing rate for each feature'
             else:
                 condition = ''
             ws.cell(4+step_num, 3, result)
             ws.cell(4+step_num, 4, condition)
             step_num += 1
-        # 显示删除变量数量的步骤
+        # Show steps that need to display drop count
         elif name in show_drop_count_steps:
             ws.cell(4+step_num, 1, step_num)
             ws.cell(4+step_num, 2, display_name)
             if df is not None and len(df) > 0:
                 if name == '分离OOS数据':
-                    # 特殊处理：显示OOS和建模样本数量
+                    # Special handling: show OOS and modeling sample counts
                     if '变量' in df.columns and '数量' in df.columns:
                     
                         oos_count = df[df['变量'] == 'OOS样本']['数量'].values[0] if len(df[df['变量'] == 'OOS样本']) > 0 else 0
                         model_count = df[df['变量'] == '建模样本']['数量'].values[0] if len(df[df['变量'] == '建模样本']) > 0 else 0
-                        result = f'OOS样本{oos_count}条，建模样本{model_count}条'
+                        result = f'OOS samples {oos_count}, modeling samples {model_count}'
                     else:
-                        result = f'{len(df)}条'
+                        result = f'{len(df)} rows'
                 elif '变量' in df.columns:
-                    result = f'删除{len(df)}个变量'
+                    result = f'Dropped {len(df)} features'
                 else:
-                    result = f'删除{len(df)}个'
+                    result = f'Dropped {len(df)}'
                 condition = ''
             else:
-                result = '空'
+                result = 'Empty'
                 condition = ''
             ws.cell(4+step_num, 3, result)
             ws.cell(4+step_num, 4, condition)
@@ -1100,90 +1100,90 @@ def export_cleaning_report(filepath: str, steps: list,
             ws.cell(4+step_num, 1, step_num)
             ws.cell(4+step_num, 2, display_name)
             
-            # 生成操作结果和依据条件
+            # Generate operation result and condition
             if df is not None and len(df) > 0:
                 if name == 'Step4-异常月份处理':
-                    # 操作结果：删除的月份
+                    # Operation result: dropped months
                     if '年月' in df.columns:
-                        result = '删除' + ','.join(df['年月'].astype(str).tolist())
+                        result = 'Dropped ' + ','.join(df['年月'].astype(str).tolist())
                     else:
-                        result = '删除' + ','.join(df.iloc[:, 0].astype(str).tolist())
-                    # 依据条件：参数标准
-                    condition = f'坏样本数小于{min_ym_bad_sample}或总样本数小于{min_ym_sample}的月份将被剔除（独立执行）'
+                        result = 'Dropped ' + ','.join(df.iloc[:, 0].astype(str).tolist())
+                    # Condition: parameter standards
+                    condition = f'Months with bad sample count less than {min_ym_bad_sample} or total sample count less than {min_ym_sample} will be dropped (independent execution)'
                 elif name == 'Step6-高缺失率处理':
-                    # 操作结果：删除的变量数量
+                    # Operation result: number of dropped features
                     if '变量' in df.columns:
-                        result = f'删除{len(df)}个变量'
+                        result = f'Dropped {len(df)} features'
                     else:
-                        result = f'删除{len(df)}个'
-                    # 依据条件：参数标准
-                    condition = f'整体缺失率大于{missing_ratio}的变量将被剔除（独立执行）'
+                        result = f'Dropped {len(df)}'
+                    # Condition: parameter standards
+                    condition = f'Features with overall missing rate greater than {missing_ratio} will be dropped (independent execution)'
                 elif name == 'Step7-IV处理':
-                    # 操作结果：删除的变量数量
+                    # Operation result: number of dropped features
                     if '变量' in df.columns:
-                        result = f'删除{len(df)}个变量'
+                        result = f'Dropped {len(df)} features'
                     else:
-                        result = f'删除{len(df)}个'
-                    # 依据条件：参数标准
-                    condition = f'整体IV小于{overall_iv_threshold}或在{max_org_threshold}个及以上机构上IV小于{org_iv_threshold}的变量将被剔除（独立执行）'
+                        result = f'Dropped {len(df)}'
+                    # Condition: parameter standards
+                    condition = f'Features with overall IV less than {overall_iv_threshold} or IV less than {org_iv_threshold} in {max_org_threshold} or more organizations will be dropped (independent execution)'
                 elif name == 'Step8-PSI处理':
-                    # 操作结果：删除的变量数量
+                    # Operation result: number of dropped features
                     if '变量' in df.columns:
-                        result = f'删除{len(df)}个变量'
+                        result = f'Dropped {len(df)} features'
                     else:
-                        result = f'删除{len(df)}个'
-                    # 依据条件：参数标准
-                    condition = f'PSI阈值{psi_threshold}，若某机构超过{max_months_ratio:.0%}月份PSI大于{psi_threshold}则该机构不稳定，若超过{max_orgs}个机构不稳定则剔除该变量（独立执行）'
+                        result = f'Dropped {len(df)}'
+                    # Condition: parameter standards
+                    condition = f'PSI threshold {psi_threshold}, if an organization has more than {max_months_ratio:.0%} months with PSI greater than {psi_threshold}, the organization is considered unstable, if more than {max_orgs} organizations are unstable, the feature will be dropped (independent execution)'
                 elif name == 'Step9-null importance处理':
-                    # 操作结果：删除的变量数量
+                    # Operation result: number of dropped features
                     if '变量' in df.columns:
-                        result = f'删除{len(df[df["状态"]=="去除"])}个变量'
+                        result = f'Dropped {len(df[df["状态"]=="去除"])} features'
                     else:
-                        result = f'删除{len(df)}个'
-                    # 依据条件：参数标准
-                    condition = f'反转前后gain值差别绝对值小于{gain_threshold}的变量将被判定为噪音并剔除（独立执行）'
+                        result = f'Dropped {len(df)}'
+                    # Condition: parameter standards
+                    condition = f'Features with absolute difference of gain values before and after permutation less than {gain_threshold} will be identified as noise and dropped (independent execution)'
                 elif name == 'Step10-高相关性剔除':
-                    # 操作结果：删除的变量数量
+                    # Operation result: number of dropped features
                     if '变量' in df.columns:
-                        result = f'删除{len(df)}个变量'
+                        result = f'Dropped {len(df)} features'
                     else:
-                        result = f'删除{len(df)}个'
-                    # 依据条件：参数标准
+                        result = f'Dropped {len(df)}'
+                    # Condition: parameter standards
                     max_corr = params.get('max_corr', 0.9)
                     top_n_keep = params.get('top_n_keep', 20)
-                    condition = f'相关性大于{max_corr}的变量将被剔除，保留原始gain排名前{top_n_keep}的变量（独立执行）'
+                    condition = f'Features with correlation greater than {max_corr} will be dropped, keep top {top_n_keep} features by original gain ranking (independent execution)'
                 else:
-                    result = '删除' + str(len(df)) + '个'
+                    result = 'Dropped ' + str(len(df))
                     condition = ''
             else:
-                result = '空'
+                result = 'Empty'
                 condition = ''
             
             ws.cell(4+step_num, 3, result)
             ws.cell(4+step_num, 4, condition)
             step_num += 1
     
-    # 计算最终去除的变量总数（取各步骤去除变量的并集）
+    # Calculate total number of dropped features (take union of dropped features from each step)
     all_dropped_vars = set()
     for name, df in steps:
         if name in filter_steps and df is not None and len(df) > 0 and '变量' in df.columns:
             if name == 'Step9-null importance处理':
-                # null importance处理需要筛选状态为"去除"的变量
+                # null importance processing needs to filter features with status "去除"
                 dropped_vars = df[df['状态'] == '去除']['变量'].tolist()
             else:
                 dropped_vars = df['变量'].tolist()
-            # 取并集（去重）
+            # Take union (deduplicated)
             all_dropped_vars = all_dropped_vars.union(set(dropped_vars))
     
-    # 添加最终统计行
+    # Add final statistics row
     final_step_num = step_num
     ws.cell(4+final_step_num, 1, final_step_num)
-    ws.cell(4+final_step_num, 2, '最终去除变量统计')
-    ws.cell(4+final_step_num, 3, f'共去除{len(all_dropped_vars)}个变量（取各步骤去除变量的并集）')
-    ws.cell(4+final_step_num, 4, '各步骤独立执行，最终去除变量为各步骤去除变量的并集')
+    ws.cell(4+final_step_num, 2, 'Final Dropped Features Statistics')
+    ws.cell(4+final_step_num, 3, f'Total dropped {len(all_dropped_vars)} features (union of dropped features from each step)')
+    ws.cell(4+final_step_num, 4, 'Each step is executed independently, final dropped features are the union of dropped features from each step')
     
-    # 各步骤详情（按步骤递进顺序创建）
-    # 定义sheet创建顺序
+    # Details of each step (create sheets in step progression order)
+    # Define sheet creation order
     sheet_order = [
         '机构样本统计', '分离OOS数据', 'Step4-异常月份处理', '缺失率明细',
         'Step5-有值率分布统计', 'Step6-高缺失率处理', 'Step7-IV明细', 'Step7-IV处理',
@@ -1191,9 +1191,9 @@ def export_cleaning_report(filepath: str, steps: list,
         'Step9-null importance处理', 'Step10-高相关性剔除'
     ]
     
-    # 按顺序创建sheet
+    # Create sheets in order
     for sheet_name in sheet_order:
-        # 在steps中查找对应的DataFrame
+        # Find corresponding DataFrame in steps
         df = None
         for name, step_df in steps:
             if name == sheet_name:
@@ -1210,7 +1210,7 @@ def export_cleaning_report(filepath: str, steps: list,
             
             for i, row in df.iterrows():
                 for j, val in enumerate(row):
-                    # 直接写入值，避免字符转义问题
+                    # Write value directly, avoid character escaping issues
                     ws_detail.cell(i+2, j+1, val if val is not None else '')
             
             header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
@@ -1220,4 +1220,4 @@ def export_cleaning_report(filepath: str, steps: list,
                 cell.font = header_font
     
     wb.save(filepath)
-    print(f"报告已保存: {filepath}")
+    print(f"Report saved: {filepath}")
